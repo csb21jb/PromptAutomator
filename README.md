@@ -1,4 +1,4 @@
-# Prompt Injector
+# Prompt Injection Automator
 
 A Python-based tool for testing prompt injection vulnerabilities in AI chat systems. This tool allows you to send multiple prompts to a chat API endpoint, measure response times, check for successful injections, and analyze results using an optional OpenAI-powered judge.
 
