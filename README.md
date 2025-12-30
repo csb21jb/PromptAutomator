@@ -153,6 +153,8 @@ Sample files included:
 
 Results are saved to both **CSV** and **HTML** files with the same base name. For example, if the output file is `prompt_results_20250101_120000.csv`, an HTML file `prompt_results_20250101_120000.html` will also be generated.
 
+<img width="1735" height="727" alt="image" src="https://github.com/user-attachments/assets/d0bd63cb-bb3d-4876-aed8-20f3708aeda5" />
+
 ### Final CSV Output
 
 The CSV file contains the following columns:
