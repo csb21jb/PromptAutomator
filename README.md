@@ -27,7 +27,7 @@ A Python-based tool for testing prompt injection vulnerabilities in AI chat syst
 
 1. Clone this repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/csb21jb/PromptAutomator.git
    cd prompt_automator
    ```
 
