@@ -1,4 +1,5 @@
 # Prompt Automator
+<img width="1536" height="1024" alt="ChatGPT Image Dec 31, 2025, 09_03_47 AM" src="https://github.com/user-attachments/assets/d64b9b99-fb31-4fbd-b3c6-9818b6683858" />
 
 A Python-based tool for testing prompt injection vulnerabilities in AI chat systems. This tool allows you to send multiple prompts to a chat API endpoint, measure response times, check for successful injections, and analyze results using an optional OpenAI-powered judge.
 
