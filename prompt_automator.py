@@ -84,13 +84,13 @@ def get_api_key_with_asterisks(prompt: str = "Enter your OpenAI API key: ") -> s
 def send_chat_message(url: str, message: str, cookie: str = None, verbose: int = 0) -> tuple[bool, dict, int]:
     """
     Send a message to the chat API endpoint
-    
+
     Args:
         url: API endpoint URL
         message: Message to send
         cookie: Optional cookie string for authentication
         verbose: Verbosity level
-    
+
     Returns:
         (success, response_data, status_code)
     """
@@ -99,32 +99,32 @@ def send_chat_message(url: str, message: str, cookie: str = None, verbose: int =
             "message": message,
             "conversation_id": None
         }
-        
+
         headers = {"Content-Type": "application/json"}
         if cookie:
             headers["Cookie"] = cookie
-        
+
         if verbose >= 2:
             print(f"[DEBUG] Payload: {json.dumps(payload)[:100]}...", flush=True)
             print(f"[DEBUG] Headers: {headers}", flush=True)
-        
+
         response = requests.post(
             url,
             json=payload,
             headers=headers,
             timeout=120
         )
-        
+
         status_code = response.status_code
-        
+
         # Try to parse JSON response
         try:
             data = response.json()
         except json.JSONDecodeError:
             data = {"error": "Invalid JSON response", "raw": response.text[:200]}
-        
+
         return (response.ok, data, status_code)
-    
+
     except requests.exceptions.Timeout:
         if verbose >= 1:
             print(f"[ERROR] Request timeout after 120s", flush=True)
@@ -137,6 +137,209 @@ def send_chat_message(url: str, message: str, cookie: str = None, verbose: int =
         if verbose >= 1:
             print(f"[ERROR] Unexpected error: {str(e)}", flush=True)
         return (False, {"error": str(e)}, 0)
+
+
+def parse_request_file(filepath: str) -> str:
+    """
+    Load and validate HTTP request template file
+
+    Args:
+        filepath: Path to request file
+
+    Returns:
+        Request template content
+    """
+    if not Path(filepath).exists():
+        print(f"❌ ERROR: Request file not found: {filepath}")
+        print(f"\nPlease provide a valid request file path.")
+        print(f"See README.md for request file format.")
+        sys.exit(1)
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Validate {{PROMPT}} marker exists
+    if "{{PROMPT}}" not in content:
+        print("❌ ERROR: {{PROMPT}} marker not found in request file")
+        print("\nYour request file must contain {{PROMPT}} where you want to inject prompts.")
+        print("\nExample:")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("POST /api/chat HTTP/1.1")
+        print("Host: localhost:5000")
+        print("Content-Type: application/json")
+        print("")
+        print('{"message": "{{PROMPT}}", "conversation_id": null}')
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("\nFor more examples, see README.md")
+        sys.exit(1)
+
+    return content
+
+
+def send_from_request_template(template: str, prompt: str, verbose: int = 0) -> tuple[bool, dict, int]:
+    """
+    Send HTTP request from template file with injected prompt
+
+    Args:
+        template: HTTP request template with {{PROMPT}} marker
+        prompt: Prompt to inject
+        verbose: Verbosity level
+
+    Returns:
+        (success, response_data, status_code)
+    """
+    try:
+        # Replace {{PROMPT}} marker with actual prompt
+        request_text = template.replace("{{PROMPT}}", prompt)
+
+        # Parse the HTTP request
+        lines = request_text.split('\n')
+
+        # Parse request line (e.g., "POST /api/chat HTTP/1.1")
+        request_line = lines[0].strip()
+        parts = request_line.split(' ')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid request line: {request_line}")
+
+        method = parts[0].upper()
+        path = parts[1]
+
+        # Parse headers and find body
+        headers = {}
+        body_start_idx = 0
+        host = None
+
+        for i, line in enumerate(lines[1:], 1):
+            line = line.rstrip('\r')
+            if line.strip() == '':
+                body_start_idx = i + 1
+                break
+
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                headers[key] = value
+
+                if key.lower() == 'host':
+                    host = value
+
+        # Extract body
+        body = '\n'.join(lines[body_start_idx:]).strip()
+
+        # Build URL
+        if not host:
+            raise ValueError("Host header not found in request")
+
+        # Determine protocol (check if running on standard ports or if https is implied)
+        if ':443' in host or 'https://' in template:
+            protocol = 'https'
+            host = host.replace(':443', '')
+        else:
+            protocol = 'http'
+
+        url = f"{protocol}://{host}{path}"
+
+        # Remove headers that requests will set automatically
+        headers_to_remove = ['Content-Length', 'Host', 'Connection']
+        for header in headers_to_remove:
+            headers.pop(header, None)
+            # Also try lowercase version
+            headers.pop(header.lower(), None)
+
+        if verbose >= 2:
+            print(f"[DEBUG] Method: {method}", flush=True)
+            print(f"[DEBUG] URL: {url}", flush=True)
+            print(f"[DEBUG] Headers: {headers}", flush=True)
+            print(f"[DEBUG] Body: {body[:100]}...", flush=True)
+
+        # Send request
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            data=body.encode('utf-8') if body else None,
+            timeout=120
+        )
+
+        status_code = response.status_code
+
+        # Try to parse JSON response
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            data = {"error": "Invalid JSON response", "raw": response.text[:200]}
+
+        return (response.ok, data, status_code)
+
+    except requests.exceptions.Timeout:
+        if verbose >= 1:
+            print(f"[ERROR] Request timeout after 120s", flush=True)
+        return (False, {"error": "Request timeout"}, 0)
+    except requests.exceptions.ConnectionError as e:
+        if verbose >= 1:
+            print(f"[ERROR] Connection error: {str(e)}", flush=True)
+        return (False, {"error": f"Connection error: {str(e)}"}, 0)
+    except Exception as e:
+        if verbose >= 1:
+            print(f"[ERROR] Unexpected error: {str(e)}", flush=True)
+        return (False, {"error": str(e)}, 0)
+
+
+def extract_response_text(data: dict) -> str:
+    """
+    Extract response text from various API response formats
+
+    Args:
+        data: Response data dictionary
+
+    Returns:
+        Extracted response text
+    """
+    # Try common field names in order of likelihood
+    common_fields = [
+        'response',      # Custom APIs
+        'message',       # Common
+        'content',       # Common
+        'text',          # Common
+        'answer',        # Q&A APIs
+        'data',          # Generic
+        'result',        # Generic
+    ]
+
+    for field in common_fields:
+        if field in data:
+            value = data[field]
+
+            # Handle nested objects (e.g., {"content": {"text": "..."}})
+            if isinstance(value, dict):
+                if 'text' in value:
+                    return str(value['text'])
+                elif 'content' in value:
+                    return str(value['content'])
+                elif 'message' in value:
+                    return str(value['message'])
+
+            # Handle string values
+            if isinstance(value, str):
+                return value
+
+            # Handle lists (e.g., OpenAI choices)
+            if isinstance(value, list) and len(value) > 0:
+                first_item = value[0]
+                if isinstance(first_item, dict):
+                    # Try to extract from first item
+                    if 'message' in first_item:
+                        msg = first_item['message']
+                        if isinstance(msg, dict) and 'content' in msg:
+                            return str(msg['content'])
+                        return str(msg)
+                    elif 'text' in first_item:
+                        return str(first_item['text'])
+                return str(first_item)
+
+    # Fallback: return entire response as JSON string
+    return json.dumps(data)
 
 
 def read_prompts(input_file: str) -> list[dict]:
@@ -636,8 +839,8 @@ def write_results_to_csv(output_file: str, results: list[dict], check_for_phrase
 
 def write_results_to_html(output_file: str, results: list[dict], check_for_phrase: bool, use_judge: bool = False):
     """
-    Write results to HTML file with formatted display
-    
+    Write results to HTML file with modern, professional design
+
     Args:
         output_file: Path to output HTML file
         results: List of result dictionaries
@@ -645,12 +848,20 @@ def write_results_to_html(output_file: str, results: list[dict], check_for_phras
         use_judge: Whether judge columns should be included
     """
     import html as html_module
-    
+
     # Count statistics
     total_tests = len(results)
     successful_requests = len([r for r in results if r['status_code'] == 200])
     failed_requests = total_tests - successful_requests
-    
+
+    # Get success results for navigation
+    success_results = []
+    if use_judge:
+        success_results = [(idx, r) for idx, r in enumerate(results, 1) if r.get('injection_label') == 'SUCCESS']
+        success_count = len(success_results)
+        possible_count = len([r for r in results if r.get('injection_label') == 'POSSIBLE'])
+        no_success_count = len([r for r in results if r.get('injection_label') == 'NO_SUCCESS'])
+
     # Start building HTML
     parts = []
     parts.append('<!DOCTYPE html>')
@@ -658,68 +869,504 @@ def write_results_to_html(output_file: str, results: list[dict], check_for_phras
     parts.append('<head>')
     parts.append('<meta charset="UTF-8">')
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
-    parts.append('<title>Prompt Injection Test Results</title>')
+    parts.append('<title>Prompt Injection Security Analysis</title>')
     parts.append('<style>')
-    parts.append('body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; max-width: 1400px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }')
-    parts.append('h1 { color: #333; border-bottom: 3px solid #007acc; padding-bottom: 10px; }')
-    parts.append('.summary { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }')
-    parts.append('.result-card { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 5px solid #007acc; }')
-    parts.append('.result-card.success { border-left-color: #d9534f; }')
-    parts.append('.result-card.possible { border-left-color: #f0ad4e; }')
-    parts.append('.result-card.no-success { border-left-color: #5cb85c; }')
-    parts.append('.result-card.error { border-left-color: #999; }')
-    parts.append('.header-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 15px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #eee; }')
-    parts.append('.metadata { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px; font-size: 0.9em; }')
-    parts.append('.metadata-item { background: #f8f9fa; padding: 8px; border-radius: 4px; }')
-    parts.append('.label { font-weight: 600; color: #555; }')
-    parts.append('.content-section { margin: 15px 0; }')
-    parts.append('.content-section h3 { color: #444; margin-top: 0; font-size: 1.1em; }')
-    parts.append('.prompt, .response { background: #f8f9fa; padding: 15px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: "Courier New", Courier, monospace; font-size: 0.9em; max-height: 400px; overflow-y: auto; }')
-    parts.append('.response.error { background: #fff5f5; color: #d9534f; }')
-    parts.append('.judge-label { display: inline-block; padding: 5px 15px; border-radius: 20px; font-weight: 600; font-size: 0.9em; }')
-    parts.append('.judge-label.SUCCESS { background: #d9534f; color: white; }')
-    parts.append('.judge-label.POSSIBLE { background: #f0ad4e; color: white; }')
-    parts.append('.judge-label.NO_SUCCESS { background: #5cb85c; color: white; }')
-    parts.append('.judge-label.ERROR, .judge-label.SKIP { background: #999; color: white; }')
-    parts.append('.reasons { margin-top: 10px; }')
-    parts.append('.reasons ul { margin: 5px 0; padding-left: 20px; }')
-    parts.append('.reasons li { margin: 5px 0; }')
-    parts.append('.status-code { padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.85em; }')
-    parts.append('.status-code.success { background: #d4edda; color: #155724; }')
-    parts.append('.status-code.error { background: #f8d7da; color: #721c24; }')
-    parts.append('.phrase-check { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 0.85em; font-weight: 600; }')
-    parts.append('.phrase-check.SUCCESS { background: #d4edda; color: #155724; }')
-    parts.append('.phrase-check.NO_SUCCESS { background: #f8d7da; color: #721c24; }')
-    parts.append('.timestamp { color: #888; font-size: 0.85em; }')
+
+    # Modern CSS inspired by Augment Code
+    parts.append('''
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            background: linear-gradient(135deg, #0a0e14 0%, #1a1f2e 100%);
+            color: #e6e9ef;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 48px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid rgba(150, 140, 255, 0.2);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #968cff 0%, #b3baff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            color: #8b92a0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 500;
+        }
+
+        /* Executive Summary */
+        .executive-summary {
+            background: #151a23;
+            border: 1px solid rgba(150, 140, 255, 0.15);
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .executive-summary h2 {
+            font-size: 1.8em;
+            margin-bottom: 24px;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: rgba(150, 140, 255, 0.08);
+            border: 1px solid rgba(150, 140, 255, 0.2);
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            border-color: rgba(150, 140, 255, 0.4);
+            background: rgba(150, 140, 255, 0.12);
+        }
+
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #968cff;
+            margin-bottom: 4px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #8b92a0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 500;
+        }
+
+        /* Success Navigation */
+        .success-navigation {
+            border-top: 1px solid rgba(150, 140, 255, 0.15);
+            padding-top: 24px;
+        }
+
+        .success-navigation h3 {
+            font-size: 1.3em;
+            margin-bottom: 16px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .success-count {
+            background: #ff6b6b;
+            color: #ffffff;
+            padding: 4px 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .success-links {
+            display: grid;
+            gap: 12px;
+        }
+
+        .success-link {
+            display: block;
+            background: rgba(255, 107, 107, 0.08);
+            border: 1px solid rgba(255, 107, 107, 0.25);
+            border-left: 3px solid #ff6b6b;
+            padding: 16px 20px;
+            text-decoration: none;
+            color: #e6e9ef;
+            transition: all 0.2s ease;
+        }
+
+        .success-link:hover {
+            background: rgba(255, 107, 107, 0.15);
+            border-left-width: 5px;
+            transform: translateX(4px);
+        }
+
+        .link-header {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 6px;
+        }
+
+        .link-meta {
+            font-size: 0.9em;
+            color: #8b92a0;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        .no-success-message {
+            padding: 20px;
+            background: rgba(150, 140, 255, 0.05);
+            border: 1px solid rgba(150, 140, 255, 0.15);
+            color: #8b92a0;
+            text-align: center;
+            font-size: 1.05em;
+        }
+
+        /* Results Section */
+        .results-header {
+            font-size: 1.8em;
+            margin: 48px 0 24px 0;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        /* Result Cards */
+        .result-card {
+            background: #151a23;
+            border: 1px solid rgba(150, 140, 255, 0.15);
+            margin-bottom: 24px;
+            padding: 28px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            scroll-margin-top: 80px;
+            transition: all 0.3s ease;
+        }
+
+        .result-card:hover {
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .result-card.success {
+            border-left: 4px solid #ff6b6b;
+        }
+
+        .result-card.possible {
+            border-left: 4px solid #ffa94d;
+        }
+
+        .result-card.no-success {
+            border-left: 4px solid #51cf66;
+        }
+
+        .result-card.error {
+            border-left: 4px solid #868e96;
+        }
+
+        /* Header Row */
+        .header-row {
+            display: grid;
+            grid-template-columns: auto 1fr auto auto;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(150, 140, 255, 0.15);
+        }
+
+        .header-row h2 {
+            font-size: 1.5em;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .test-id {
+            font-size: 1.1em;
+            color: #8b92a0;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            padding: 6px 14px;
+            font-weight: 600;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge.success {
+            background: rgba(81, 207, 102, 0.15);
+            color: #51cf66;
+            border: 1px solid rgba(81, 207, 102, 0.3);
+        }
+
+        .status-badge.error {
+            background: rgba(255, 107, 107, 0.15);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        .response-time {
+            color: #8b92a0;
+            font-size: 0.95em;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        /* Metadata Grid */
+        .metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .metadata-item {
+            background: rgba(150, 140, 255, 0.05);
+            padding: 12px 16px;
+            border: 1px solid rgba(150, 140, 255, 0.1);
+            font-size: 0.95em;
+        }
+
+        .label {
+            font-weight: 600;
+            color: #968cff;
+            margin-right: 8px;
+        }
+
+        .timestamp {
+            color: #8b92a0;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+        }
+
+        /* Content Sections */
+        .content-section {
+            margin: 24px 0;
+        }
+
+        .content-section h3 {
+            color: #ffffff;
+            font-size: 1.2em;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        /* Judge Analysis */
+        .judge-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .judge-label {
+            padding: 8px 18px;
+            font-weight: 700;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .judge-label.SUCCESS {
+            background: #ff6b6b;
+            color: #ffffff;
+        }
+
+        .judge-label.POSSIBLE {
+            background: #ffa94d;
+            color: #ffffff;
+        }
+
+        .judge-label.NO_SUCCESS {
+            background: #51cf66;
+            color: #ffffff;
+        }
+
+        .judge-label.ERROR,
+        .judge-label.SKIP {
+            background: #868e96;
+            color: #ffffff;
+        }
+
+        .confidence {
+            color: #8b92a0;
+            font-weight: 600;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        .reasons {
+            background: rgba(150, 140, 255, 0.05);
+            border: 1px solid rgba(150, 140, 255, 0.15);
+            border-left: 3px solid #968cff;
+            padding: 16px 20px;
+            margin-top: 12px;
+        }
+
+        .reasons strong {
+            color: #968cff;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .reasons ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .reasons li {
+            padding: 6px 0;
+            padding-left: 20px;
+            position: relative;
+            color: #c5cad5;
+        }
+
+        .reasons li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #968cff;
+        }
+
+        /* Phrase Check */
+        .phrase-check {
+            display: inline-block;
+            padding: 6px 14px;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 12px;
+        }
+
+        .phrase-check.SUCCESS {
+            background: rgba(81, 207, 102, 0.15);
+            color: #51cf66;
+            border: 1px solid rgba(81, 207, 102, 0.3);
+        }
+
+        .phrase-check.NO_SUCCESS {
+            background: rgba(255, 107, 107, 0.15);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        /* Code Blocks */
+        .prompt,
+        .response {
+            background: #0a0e14;
+            border: 1px solid rgba(150, 140, 255, 0.2);
+            padding: 20px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #c5cad5;
+        }
+
+        .response.error {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: rgba(255, 107, 107, 0.3);
+            color: #ff6b6b;
+        }
+
+        /* Scrollbar Styling */
+        .prompt::-webkit-scrollbar,
+        .response::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .prompt::-webkit-scrollbar-track,
+        .response::-webkit-scrollbar-track {
+            background: rgba(150, 140, 255, 0.05);
+        }
+
+        .prompt::-webkit-scrollbar-thumb,
+        .response::-webkit-scrollbar-thumb {
+            background: rgba(150, 140, 255, 0.3);
+        }
+
+        .prompt::-webkit-scrollbar-thumb:hover,
+        .response::-webkit-scrollbar-thumb:hover {
+            background: rgba(150, 140, 255, 0.5);
+        }
+    ''')
+
     parts.append('</style>')
     parts.append('</head>')
     parts.append('<body>')
-    parts.append('<h1>Prompt Injection Test Results</h1>')
-    
-    # Summary section
-    parts.append('<div class="summary">')
-    parts.append('<h2>Summary</h2>')
-    parts.append('<div class="metadata">')
-    parts.append(f'<div class="metadata-item"><span class="label">Total Tests:</span> {total_tests}</div>')
-    parts.append(f'<div class="metadata-item"><span class="label">Successful Requests:</span> {successful_requests}</div>')
-    parts.append(f'<div class="metadata-item"><span class="label">Failed Requests:</span> {failed_requests}</div>')
-    
+    parts.append('<div class="container">')
+
+    # Header
+    parts.append('<header>')
+    parts.append('<h1>Prompt Injection Security Analysis</h1>')
+    parts.append('<div class="subtitle">Test Results Report</div>')
+    parts.append('</header>')
+
+    # Executive Summary
+    parts.append('<section class="executive-summary">')
+    parts.append('<h2>Executive Summary</h2>')
+
+    # Stats grid
+    parts.append('<div class="stats-grid">')
+    parts.append(f'<div class="stat-card"><div class="stat-value">{total_tests}</div><div class="stat-label">Total Tests</div></div>')
+    parts.append(f'<div class="stat-card"><div class="stat-value">{successful_requests}</div><div class="stat-label">Successful Requests</div></div>')
+    parts.append(f'<div class="stat-card"><div class="stat-value">{failed_requests}</div><div class="stat-label">Failed Requests</div></div>')
+
     if use_judge:
-        success_count = len([r for r in results if r.get('injection_label') == 'SUCCESS'])
-        possible_count = len([r for r in results if r.get('injection_label') == 'POSSIBLE'])
-        no_success_count = len([r for r in results if r.get('injection_label') == 'NO_SUCCESS'])
-        parts.append(f'<div class="metadata-item"><span class="label">Injection Success:</span> {success_count}</div>')
-        parts.append(f'<div class="metadata-item"><span class="label">Injection Possible:</span> {possible_count}</div>')
-        parts.append(f'<div class="metadata-item"><span class="label">Injection Failed:</span> {no_success_count}</div>')
-    
-    parts.append('</div></div>')
-    
+        parts.append(f'<div class="stat-card"><div class="stat-value">{success_count}</div><div class="stat-label">Injection Success</div></div>')
+        parts.append(f'<div class="stat-card"><div class="stat-value">{possible_count}</div><div class="stat-label">Injection Possible</div></div>')
+        parts.append(f'<div class="stat-card"><div class="stat-value">{no_success_count}</div><div class="stat-label">Injection Failed</div></div>')
+
+    parts.append('</div>')
+
+    # Success navigation
+    if use_judge:
+        parts.append('<div class="success-navigation">')
+        parts.append('<h3>Successful Prompt Injections<span class="success-count">' + str(len(success_results)) + '</span></h3>')
+
+        if success_results:
+            parts.append('<div class="success-links">')
+            for idx, result in success_results:
+                technique = html_module.escape(str(result.get('technique', 'Unknown')))
+                confidence = result.get('injection_confidence', '0')
+                response_time = result.get('response_time_ms', 0)
+                test_id = html_module.escape(str(result.get('id', '')))
+
+                parts.append(f'<a href="#test-{idx}" class="success-link">')
+                parts.append(f'<div class="link-header">Test #{idx} - {technique}</div>')
+                parts.append(f'<div class="link-meta">{confidence}% confidence • {response_time:.0f}ms • ID: {test_id}</div>')
+                parts.append('</a>')
+            parts.append('</div>')
+        else:
+            parts.append('<div class="no-success-message">No successful injections detected</div>')
+
+        parts.append('</div>')
+
+    parts.append('</section>')
+
+    # Results section
+    parts.append('<h2 class="results-header">Detailed Test Results</h2>')
+
     # Individual result cards
     for idx, result in enumerate(results, 1):
         status_code = result.get('status_code', 0)
         response_text = result.get('response', '')
         is_error_response = response_text.startswith('ERROR:')
-        
+
         # Determine card class
         card_class = 'result-card'
         if use_judge:
@@ -732,60 +1379,67 @@ def write_results_to_html(output_file: str, results: list[dict], check_for_phras
                 card_class += ' no-success'
             elif judge_label in ['ERROR', 'SKIP']:
                 card_class += ' error'
-        
-        parts.append(f'<div class="{card_class}">')
+
+        parts.append(f'<div id="test-{idx}" class="{card_class}">')
+
+        # Header row
         parts.append('<div class="header-row">')
-        parts.append(f'<h2 style="margin: 0;">Test #{idx}</h2>')
-        parts.append(f'<span style="font-size: 1.2em; color: #666;">ID: {html_module.escape(str(result.get("id", "")))}</span>')
-        
+        parts.append(f'<h2>Test #{idx}</h2>')
+        parts.append(f'<span class="test-id">ID: {html_module.escape(str(result.get("id", "")))}</span>')
+
         status_class = 'success' if status_code == 200 else 'error'
-        parts.append(f'<span class="status-code {status_class}">Status: {status_code}</span>')
-        
+        parts.append(f'<span class="status-badge {status_class}">Status {status_code}</span>')
+
         response_time = result.get('response_time_ms', 0)
-        parts.append(f'<span style="color: #666; font-size: 0.9em;">{response_time:.0f}ms</span>')
+        parts.append(f'<span class="response-time">{response_time:.0f}ms</span>')
         parts.append('</div>')
-        
+
         # Metadata
         parts.append('<div class="metadata">')
-        parts.append(f'<div class="metadata-item"><span class="label">Technique:</span> {html_module.escape(str(result.get("technique", "")))}</div>')
-        parts.append(f'<div class="metadata-item"><span class="label">Repeat:</span> {result.get("repeat_number", "")}/{result.get("request_number", "")}</div>')
-        parts.append(f'<div class="metadata-item"><span class="label">Retry:</span> {result.get("retry_attempt", 0)}</div>')
-        parts.append(f'<div class="metadata-item"><span class="label">Timestamp:</span> <span class="timestamp">{html_module.escape(str(result.get("timestamp", "")))}</span></div>')
+        parts.append(f'<div class="metadata-item"><span class="label">Technique:</span>{html_module.escape(str(result.get("technique", "")))}</div>')
+        parts.append(f'<div class="metadata-item"><span class="label">Repeat:</span>{result.get("repeat_number", "")}/{result.get("request_number", "")}</div>')
+        parts.append(f'<div class="metadata-item"><span class="label">Retry:</span>{result.get("retry_attempt", 0)}</div>')
+        parts.append(f'<div class="metadata-item"><span class="label">Timestamp:</span><span class="timestamp">{html_module.escape(str(result.get("timestamp", "")))}</span></div>')
         parts.append('</div>')
-        
-        # Judge info
+
+        # Judge analysis
         if use_judge and result.get('injection_label'):
             parts.append('<div class="content-section">')
             parts.append('<h3>Judge Analysis</h3>')
+
             judge_label = result.get('injection_label', '')
             confidence = result.get('injection_confidence', '0')
-            parts.append(f'<div><span class="judge-label {judge_label}">{judge_label}</span> ')
-            parts.append(f'<span style="margin-left: 10px; font-weight: 600;">Confidence: {confidence}%</span></div>')
-            
+
+            parts.append('<div class="judge-header">')
+            parts.append(f'<span class="judge-label {judge_label}">{judge_label}</span>')
+            parts.append(f'<span class="confidence">Confidence: {confidence}%</span>')
+            parts.append('</div>')
+
             reasons = result.get('injection_reasons', '')
             if reasons and reasons != 'Response was an error':
-                parts.append('<div class="reasons"><strong>Reasons:</strong><ul>')
+                parts.append('<div class="reasons"><strong>Reasoning:</strong><ul>')
                 for reason in reasons.split(' | '):
                     if reason.strip():
                         parts.append(f'<li>{html_module.escape(reason.strip())}</li>')
                 parts.append('</ul></div>')
+
             parts.append('</div>')
-        
+
         # Phrase check
         if check_for_phrase and result.get('phrase_check'):
             phrase_result = result.get('phrase_check', 'N/A')
             if phrase_result != 'N/A':
                 parts.append('<div class="content-section">')
-                parts.append(f'<h3>Phrase Check: <span class="phrase-check {phrase_result}">{phrase_result}</span></h3>')
+                parts.append(f'<h3>Phrase Check<span class="phrase-check {phrase_result}">{phrase_result}</span></h3>')
                 parts.append('</div>')
-        
+
         # Prompt
         parts.append('<div class="content-section">')
         parts.append('<h3>Prompt</h3>')
         prompt_text = html_module.escape(result.get('prompt', ''))
         parts.append(f'<div class="prompt">{prompt_text}</div>')
         parts.append('</div>')
-        
+
         # Response
         parts.append('<div class="content-section">')
         parts.append('<h3>Response</h3>')
@@ -793,28 +1447,28 @@ def write_results_to_html(output_file: str, results: list[dict], check_for_phras
         response_text_escaped = html_module.escape(response_text)
         parts.append(f'<div class="{response_class}">{response_text_escaped}</div>')
         parts.append('</div>')
-        
+
         parts.append('</div>')
-    
+
+    parts.append('</div>')
     parts.append('</body></html>')
-    
+
     # Write to file
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(parts))
 
 
-def test_prompts(url: str, prompts: list[dict], requests_per_minute: float, output_file: str, repeat: int = 1, check_for_phrase: bool = False, cookie: str = None, verbose: int = 0, use_judge: bool = False, judge_provider: str = None, judge_api_key: str = None, judge_model: str = None, judge_model_display: str = None):
+def test_prompts(request_template: str, prompts: list[dict], requests_per_minute: float, output_file: str, repeat: int = 1, check_for_phrase: bool = False, verbose: int = 0, use_judge: bool = False, judge_provider: str = None, judge_api_key: str = None, judge_model: str = None, judge_model_display: str = None):
     """
     Test multiple prompts and capture responses
-    
+
     Args:
-        url: Chat API endpoint URL
+        request_template: HTTP request template with {{PROMPT}} marker (REQUIRED)
         prompts: List of prompt dictionaries with 'id', 'technique', and 'prompt' keys
         requests_per_minute: Maximum rate at which to send requests
         output_file: CSV file to save results
         repeat: Number of times to repeat each prompt
         check_for_phrase: If True, check if the technique phrase appears in the response
-        cookie: Optional cookie string for authentication
         verbose: Verbosity level (0=normal, 1=-v, 2=-vv)
         use_judge: If True, use LLM judge to analyze responses
         judge_provider: Provider name (openai, anthropic, google)
@@ -832,15 +1486,15 @@ def test_prompts(url: str, prompts: list[dict], requests_per_minute: float, outp
     delay_lock = threading.Lock()
     
     total_requests = len(prompts) * repeat
-    
-    print(f"Prompt Tester - Multiple Prompts Test")
+
+    print(f"Prompt Injection Tester")
     print(f"=" * 60)
-    print(f"Endpoint:       {url}")
+    print(f"Request File:   Using template")
     print(f"Prompts:        {len(prompts)}")
     print(f"Repeat:         {repeat}x")
     print(f"Total Requests: {total_requests}")
     if sequential_mode:
-        print(f"Mode:           Sequential (no delay between requests)")
+        print(f"Rate:           Sequential (no delay between requests)")
     else:
         print(f"Max Rate:       {requests_per_minute} req/min ({delay:.3f}s between requests)")
     if use_judge:
@@ -894,10 +1548,10 @@ def test_prompts(url: str, prompts: list[dict], requests_per_minute: float, outp
         else:
             print(f"Request {request_num}/{total_requests}: {display_text}", flush=True)
         
-        # Send request
+        # Send request using template
         if verbose >= 1:
-            print(f"  → Sending to {url}...", flush=True)
-        success, data, status_code = send_chat_message(url, prompt, cookie, verbose)
+            print(f"  → Sending request...", flush=True)
+        success, data, status_code = send_from_request_template(request_template, prompt, verbose)
         
         # Calculate response time
         response_time = (time.time() - request_start) * 1000  # Convert to ms
@@ -906,8 +1560,9 @@ def test_prompts(url: str, prompts: list[dict], requests_per_minute: float, outp
         
         # Process response
         phrase_check_result = None
-        if success and data.get('success'):
-            response_text = data.get('response', '')
+        if success:
+            # Extract response text using universal extraction function
+            response_text = extract_response_text(data)
             error_text = None
             retry_msg = f" (retry {retry_attempt}/{max_retries})" if retry_attempt > 0 else ""
             print(f"  └─ ✅ OK ({response_time:.0f}ms){retry_msg}")
@@ -1205,51 +1860,54 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test prompts sequentially (one after another, no delay)
-  %(prog)s prompts.csv
-  
-  # Test prompts from CSV file at 10 req/min
-  %(prog)s prompts.csv 10
-  
-  # Test prompts at 30 req/min with custom output
-  %(prog)s test_prompts.csv 30 -o results.csv
-  
-  # Test each prompt 3 times to check for non-determinism
-  %(prog)s prompts.csv 20 --repeat 3
-  
-  # Test against custom endpoint
-  %(prog)s prompts.csv 20 -u http://example.com/api/chat
-  
-  # Check if technique phrase appears in responses
-  %(prog)s prompts.csv 15 --check-for-phrase
-  
-  # Test with authentication cookie
-  %(prog)s prompts.csv 15 -c "session_id=abc123; auth_token=xyz"
-  
-  # Use LLM judge to analyze responses for jailbreaks/injections (will prompt for model selection)
-  %(prog)s prompts.csv --judge
-  %(prog)s prompts.csv -j
+  # Basic usage (sequential, no rate limiting)
+  %(prog)s prompts.csv --request request.txt
 
-Input file format:
-  - CSV file with columns: id, technique, prompt
+  # With AI judge analysis
+  %(prog)s prompts.csv --request request.txt --judge
+
+  # With rate limiting (10 requests per minute)
+  %(prog)s prompts.csv 10 --request request.txt
+
+  # Repeat each prompt 3 times
+  %(prog)s prompts.csv --request request.txt --repeat 3
+
+  # With custom output file
+  %(prog)s prompts.csv --request request.txt -o results.csv
+
+Creating Request Templates:
+  1. Export HTTP request from Burp Suite (Right-click → Copy to file)
+  2. Replace prompt value with {{PROMPT}} marker
+  3. Save as request.txt
+
+  Example request.txt:
+    POST /api/chat HTTP/1.1
+    Host: 192.168.66.126:5000
+    Content-Type: application/json
+    Cookie: session=abc123
+
+    {"message":"{{PROMPT}}","conversation_id":null}
+
+  Works with ANY API: OpenAI, Anthropic, Claude, custom endpoints, etc.
+
+CSV Input Format:
+  - Columns: id, technique, prompt
   - Header row required
-  - Example: direct_injection.csv
+  - See README.md for examples
         """
     )
     
     parser.add_argument('input_file', type=str, help='Input CSV file with columns: id, technique, prompt')
+    parser.add_argument('--request', type=str, required=True,
+                        help='HTTP request template file with {{PROMPT}} marker (REQUIRED)')
     parser.add_argument('rate', type=float, nargs='?', default=None, help='Maximum request rate in requests per minute (default: sequential, no delay)')
     parser.add_argument('--rate', dest='rate_flag', type=float, help='Maximum request rate in requests per minute (alternative to positional argument)')
-    parser.add_argument('-u', '--url', type=str, default='http://localhost:5000/api/chat',
-                        help='Chat API endpoint URL (default: http://localhost:5000/api/chat)')
     parser.add_argument('-o', '--output', type=str, default=None,
                         help='Output CSV file (default: prompt_results_<timestamp>.csv)')
     parser.add_argument('-r', '--repeat', type=int, default=1,
                         help='Number of times to repeat each prompt (default: 1)')
     parser.add_argument('--check-for-phrase', action='store_true',
                         help='Check if the technique phrase appears in the response and add phrase_check column')
-    parser.add_argument('-c', '--cookie', type=str, default=None,
-                        help='Cookie string for authentication (e.g., "session_id=abc123; auth_token=xyz")')
     parser.add_argument('-j', '--judge', action='store_true',
                         help='Use LLM API to judge responses for jailbreaks/injections (will prompt for provider and model selection)')
     parser.add_argument('-v', '--verbose', action='count', default=0,
@@ -1301,19 +1959,25 @@ Input file format:
             print()
     
     try:
+        # Load request template (required)
+        request_template = parse_request_file(args.request)
+        if args.verbose >= 1:
+            print(f"✅ Request template loaded successfully from {args.request}")
+            print(f"   Found {{{{PROMPT}}}} marker in request\n")
+
         # Read prompts from file
         prompts = read_prompts(args.input_file)
         if not prompts:
             print("Error: No prompts found in input file")
             return
-        
+
         print(f"Loaded {len(prompts)} prompts from {args.input_file}\n")
-        
+
         if args.verbose >= 1:
             print(f"[INFO] Verbosity level: {args.verbose}\n")
-        
+
         # Run the test
-        test_prompts(args.url, prompts, args.rate, args.output, args.repeat, args.check_for_phrase, args.cookie, args.verbose, args.judge, judge_provider, judge_api_key, judge_model, judge_model_display)
+        test_prompts(request_template, prompts, args.rate, args.output, args.repeat, args.check_for_phrase, args.verbose, args.judge, judge_provider, judge_api_key, judge_model, judge_model_display)
         
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
