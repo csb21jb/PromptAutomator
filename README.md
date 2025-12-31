@@ -2,7 +2,7 @@
 
 A Python-based tool for testing prompt injection vulnerabilities in AI chat systems. This tool allows you to send multiple prompts to a chat API endpoint, measure response times, check for successful injections, and analyze results using an optional OpenAI-powered judge.
 
-**Origin**: This project was created as part of coursework for [TCM Security](https://tcm-sec.com/)'s training programs and based heavily on the AI Pentest course - Great work TCM.
+**Origin**: An open-source security testing tool for evaluating AI chat systems against prompt injection vulnerabilities.
 
 ## Features
 
@@ -41,18 +41,7 @@ A Python-based tool for testing prompt injection vulnerabilities in AI chat syst
 
 ## Usage
 
-### 🚀 Quick Start
-
-**Two modes of operation:**
-
-1. **Direct URL Mode** - For the course's custom chatbot API
-2. **Universal Mode** - For ANY HTTP API (OpenAI, Anthropic, Claude, custom APIs, etc.)
-
-### 🌐 Universal Mode (Recommended)
-
-Test ANY API endpoint using HTTP request templates. Works with OpenAI, Anthropic, Google Gemini, or any custom API!
-
-#### Creating a Request Template
+### Creating a Request Template
 
 1. **Export from Burp Suite** (easiest method):
    - Right-click on a request in Burp Suite
@@ -71,7 +60,7 @@ Test ANY API endpoint using HTTP request templates. Works with OpenAI, Anthropic
 
    **Important**: Include `{{PROMPT}}` exactly where you want prompts injected!
 
-#### Running Tests
+### Running Tests
 
 ```bash
 # Sequential testing (recommended for most use cases)
@@ -84,7 +73,7 @@ python3 prompt_automator_v0.3.py prompts.csv --request request.txt --judge
 python3 prompt_automator_v0.3.py prompts.csv 10 --request request.txt
 ```
 
-#### Example: Testing OpenAI API
+### Example: Testing OpenAI API
 
 **openai_request.txt:**
 ```http
@@ -106,7 +95,7 @@ Authorization: Bearer sk-your-api-key-here
 python3 prompt_automator_v0.3.py prompts.csv --request openai_request.txt
 ```
 
-#### Example: Testing Anthropic Claude API
+### Example: Testing Anthropic Claude API
 
 **claude_request.txt:**
 ```http
@@ -130,7 +119,7 @@ anthropic-version: 2023-06-01
 python3 prompt_automator_v0.3.py prompts.csv --request claude_request.txt --judge
 ```
 
-### 📍 Direct URL Mode (Course-Specific)
+### 📍 Direct URL Mode
 
 #### Specify Target API Endpoint (Required for Non-Default URLs)
 The `-u` or `--url` flag specifies the target chat API endpoint. This is **essential** for testing any API other than the default `http://localhost:5000/api/chat`:
@@ -452,15 +441,7 @@ The tool automatically adjusts the rate when encountering 429 errors. If you con
 - Check your API quota and billing (OpenAI, Anthropic, or Google)
 - Ensure you have access to the specified model
 
-## License
 
-This project is provided for educational purposes as part of TCM Security's training programs.
-
-## Credits
-
-**Created for**: [TCM Security](https://tcm-sec.com/) coursework
-
-**Co-Authored-By**: Warp <agent@warp.dev>
 
 ## Disclaimer
 
