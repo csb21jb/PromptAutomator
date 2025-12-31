@@ -47,42 +47,42 @@ The `-u` or `--url` flag specifies the target chat API endpoint. This is **essen
 
 ```bash
 # Test against a custom API endpoint
-./prompt_injection.py prompts.csv -u http://example.com/api/chat -v --judge
+python3 prompt_injection.py prompts.csv -u http://example.com/api/chat -v --judge
 
 # Test against a remote server
-./prompt_injection.py prompts.csv -u https://api.example.com/v1/chat
+python3 prompt_injection.py prompts.csv -u https://api.example.com/v1/chat
 ```
 
 #### Sequential Testing (No Delay)
 Test prompts one at a time without rate limiting:
 ```bash
 # Uses default endpoint (localhost:5000)
-./prompt_injection.py prompts.csv
+python3 prompt_injection.py prompts.csv
 
 # With custom endpoint
-./prompt_injection.py prompts.csv -u http://example.com/api/chat
+python3 prompt_injection.py prompts.csv -u http://example.com/api/chat
 ```
 
 #### Rate-Limited Testing
 Test prompts at 10 requests per minute:
 ```bash
-./prompt_injection.py prompts.csv 10 -u http://example.com/api/chat
+python3 prompt_injection.py prompts.csv 10 -u http://example.com/api/chat
 ```
 
 #### With Custom Output File
 ```bash
-./prompt_injection.py prompts.csv 30 -u http://example.com/api/chat -o results.csv
+python3 prompt_injection.py prompts.csv 30 -u http://example.com/api/chat -o results.csv
 ```
 
 #### Repeat Each Prompt Multiple Times
 Test non-determinism by repeating each prompt 3 times:
 ```bash
-./prompt_injection.py prompts.csv 20 -u http://example.com/api/chat --repeat 3
+python3 prompt_injection.py prompts.csv 20 -u http://example.com/api/chat --repeat 3
 ```
 
 #### With Authentication Cookie
 ```bash
-./prompt_injection.py prompts.csv 15 -u http://example.com/api/chat -c "session_id=abc123; auth_token=xyz"
+python3 prompt_injection.py prompts.csv 15 -u http://example.com/api/chat -c "session_id=abc123; auth_token=xyz"
 ```
 
 ### Advanced Features
@@ -90,33 +90,33 @@ Test non-determinism by repeating each prompt 3 times:
 #### Phrase Check
 Check if the technique phrase appears in responses:
 ```bash
-./prompt_injection.py prompts.csv 15 -u http://example.com/api/chat --check-for-phrase
+python3 prompt_injection.py prompts.csv 15 -u http://example.com/api/chat --check-for-phrase
 ```
 
 #### AI Judge Mode
 Use AI models (OpenAI, Anthropic, or Google) to analyze responses for successful injections:
 ```bash
 # Will prompt for API key and model selection
-./prompt_injection.py prompts.csv -u http://example.com/api/chat --judge
+python3 prompt_injection.py prompts.csv -u http://example.com/api/chat --judge
 
 # Or with specific model
-./prompt_injection.py prompts.csv -u http://example.com/api/chat --judge --judge-model gpt-4o
+python3 prompt_injection.py prompts.csv -u http://example.com/api/chat --judge --judge-model gpt-4o
 ```
 
 You can also set API keys as environment variables:
 ```bash
 export OPENAI_API_KEY="your-api-key-here"
-./prompt_injection.py prompts.csv -u http://example.com/api/chat --judge
+python3 prompt_injection.py prompts.csv -u http://example.com/api/chat --judge
 ```
 
 #### Verbose Output
 Increase verbosity for debugging:
 ```bash
 # Verbose
-./prompt_injection.py prompts.csv 20 -u http://example.com/api/chat -v
+python3 prompt_injection.py prompts.csv 20 -u http://example.com/api/chat -v
 
 # Very verbose
-./prompt_injection.py prompts.csv 20 -u http://example.com/api/chat -vv
+python3 pythprompt_injection.py prompts.csv 20 -u http://example.com/api/chat -vv
 ```
 
 ## Input File Format
