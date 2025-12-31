@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Prompt Tester - Test multiple prompts and capture their responses
+Prompt Automator - Test multiple prompts and capture their responses
 Reads prompts from a file and sends them to the chat endpoint
 """
 
@@ -79,64 +79,6 @@ def get_api_key_with_asterisks(prompt: str = "Enter your OpenAI API key: ") -> s
     finally:
         # Restore terminal settings
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def send_chat_message(url: str, message: str, cookie: str = None, verbose: int = 0) -> tuple[bool, dict, int]:
-    """
-    Send a message to the chat API endpoint
-
-    Args:
-        url: API endpoint URL
-        message: Message to send
-        cookie: Optional cookie string for authentication
-        verbose: Verbosity level
-
-    Returns:
-        (success, response_data, status_code)
-    """
-    try:
-        payload = {
-            "message": message,
-            "conversation_id": None
-        }
-
-        headers = {"Content-Type": "application/json"}
-        if cookie:
-            headers["Cookie"] = cookie
-
-        if verbose >= 2:
-            print(f"[DEBUG] Payload: {json.dumps(payload)[:100]}...", flush=True)
-            print(f"[DEBUG] Headers: {headers}", flush=True)
-
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=120
-        )
-
-        status_code = response.status_code
-
-        # Try to parse JSON response
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            data = {"error": "Invalid JSON response", "raw": response.text[:200]}
-
-        return (response.ok, data, status_code)
-
-    except requests.exceptions.Timeout:
-        if verbose >= 1:
-            print(f"[ERROR] Request timeout after 120s", flush=True)
-        return (False, {"error": "Request timeout"}, 0)
-    except requests.exceptions.ConnectionError as e:
-        if verbose >= 1:
-            print(f"[ERROR] Connection error: {str(e)}", flush=True)
-        return (False, {"error": f"Connection error: {str(e)}"}, 0)
-    except Exception as e:
-        if verbose >= 1:
-            print(f"[ERROR] Unexpected error: {str(e)}", flush=True)
-        return (False, {"error": str(e)}, 0)
 
 
 def parse_request_file(filepath: str) -> str:
@@ -369,15 +311,13 @@ def read_prompts(input_file: str) -> list[dict]:
 JUDGE_MODELS = {
     'openai': {
         'name': 'OpenAI',
-        # Add additional OpenAI models as needed
         'models': [
             {'id': 'gpt-4o', 'name': 'GPT-4o (latest, most capable)'},
             {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini (fast, cost-effective)'},
             {'id': 'gpt-4-turbo', 'name': 'GPT-4 Turbo'},
             {'id': 'gpt-4', 'name': 'GPT-4'},
         ],
-        'env_var': 'OPENAI_API_KEY',
-        'api_url': 'https://api.openai.com/v1/chat/completions'
+        'env_var': 'OPENAI_API_KEY'
     },
     'anthropic': {
         'name': 'Anthropic (Claude)',
@@ -387,8 +327,7 @@ JUDGE_MODELS = {
             {'id': 'claude-3-opus-20240229', 'name': 'Claude 3 Opus'},
             {'id': 'claude-3-sonnet-20240229', 'name': 'Claude 3 Sonnet'},
         ],
-        'env_var': 'ANTHROPIC_API_KEY',
-        'api_url': 'https://api.anthropic.com/v1/messages'
+        'env_var': 'ANTHROPIC_API_KEY'
     },
     'google': {
         'name': 'Google (Gemini)',
@@ -397,8 +336,7 @@ JUDGE_MODELS = {
             {'id': 'gemini-1.5-pro', 'name': 'Gemini 1.5 Pro'},
             {'id': 'gemini-1.5-flash', 'name': 'Gemini 1.5 Flash'},
         ],
-        'env_var': 'GOOGLE_API_KEY',
-        'api_url': 'https://generativelanguage.googleapis.com/v1beta/models'
+        'env_var': 'GOOGLE_API_KEY'
     }
 }
 
