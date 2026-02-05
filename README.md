@@ -33,7 +33,13 @@ A Python-based tool for testing prompt injection vulnerabilities in AI chat syst
    cd PromptAutomator
    ```
 
-2. Install dependencies:
+2. Enter a virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+4. Install dependencies:
    ```bash
    pip install requests
    ```
