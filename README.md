@@ -227,9 +227,8 @@ id,technique,prompt
 ```
 
 Sample files included:
-- `test_10_prompts.csv` - Small test set
 - `test_30_prompts.csv` - Medium test set
-- `master_prompt_injection.csv` - Comprehensive injection database
+
 
 ## Output Format
 
@@ -258,7 +257,7 @@ The CSV file contains the following columns:
 
 ### HTML Output
 
-The HTML file provides a well-formatted, easy-to-read view of the results with:
+The HTML file provides a well-formatted, easy-to-read view of the results if AI is used with:
 - **Summary Dashboard**: Overall statistics including total tests, success rates, and injection analysis
 - **Color-Coded Cards**: Each test result displayed in a card with color-coded borders:
   - 🔴 Red: Successful injection (SUCCESS)
