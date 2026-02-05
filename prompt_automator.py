@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Prompt Automator - Test multiple prompts and capture their responses
+Prompt Tester - Test multiple prompts and capture their responses
 Reads prompts from a file and sends them to the chat endpoint
 """
 
@@ -1526,8 +1526,8 @@ def test_prompts(request_template: str, prompts: list[dict], requests_per_minute
             if is_rate_limit:
                 print(f"  └─ 🚫 RATE LIMITED (status: {status_code})")
                 
-                # Adjust rate limit on first rate limit error
-                if not rate_adjusted.is_set():
+                # Adjust rate limit on first rate limit error (only in concurrent mode)
+                if not rate_adjusted.is_set() and not sequential_mode:
                     with delay_lock:
                         old_delay = delay
                         delay = delay * 1.5
@@ -1536,6 +1536,9 @@ def test_prompts(request_template: str, prompts: list[dict], requests_per_minute
                     print(f"\n⚠️  Rate limit adjusted due to 429 errors")
                     print(f"    Previous rate: {old_rate:.1f} req/min ({old_delay:.3f}s delay)")
                     print(f"    New rate: {new_rate:.1f} req/min ({delay:.3f}s delay)\n")
+                    rate_adjusted.set()
+                elif not rate_adjusted.is_set() and sequential_mode:
+                    print(f"\n⚠️  Rate limit detected in sequential mode - consider adding a delay between requests\n")
                     rate_adjusted.set()
             else:
                 print(f"  └─ ❌ Error (status: {status_code}): {error_text}")
@@ -1695,7 +1698,7 @@ def test_prompts(request_template: str, prompts: list[dict], requests_per_minute
     print(f"Total time:              {total_time:.2f}s")
     print(f"Actual rate achieved:    {(len(results) / total_time) * 60:.2f} req/min")
     
-    if rate_adjusted.is_set():
+    if rate_adjusted.is_set() and not sequential_mode:
         with delay_lock:
             final_rate = 60.0 / delay
         print(f"Final rate:              {final_rate:.1f} req/min ({delay:.3f}s delay)")
